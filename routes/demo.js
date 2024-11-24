@@ -1,10 +1,20 @@
 const express = require("express");
 const { ObjectId } = require("mongodb");
 const bcrypt = require("bcryptjs");
-
 const db = require("../data/database");
+const session = require("express-session"); // Make sure express-session is required
 
 const router = express.Router();
+
+// Session configuration
+router.use(
+  session({
+    secret: "your-secret-key", // Change this to a secure, unique secret
+    resave: false,
+    saveUninitialized: false,
+    cookie: { secure: false }, // Set secure to true if using HTTPS
+  }),
+);
 
 // Render welcome page
 router.get("/", function (req, res) {
@@ -77,7 +87,7 @@ router.post("/signup", async function (req, res) {
   if (existingUser) {
     req.session.inputData = {
       hasError: true,
-      message: "User exist already 🙃",
+      message: "User already exists 🙃",
       email: enteredEmail,
       confirmEmail: enteredConfirmEmail,
       password: enteredPassword,
@@ -192,7 +202,10 @@ router.get("/admin", async function (req, res) {
 
 // Profile route: should be accessible to authenticated users
 router.get("/profile", function (req, res) {
+  console.log("Session in /profile route:", req.session); // Log session data here
+
   if (!req.session.isAuthenticated) {
+    console.log("User not authenticated, redirecting to 401");
     return res.status(401).render("401");
   }
 
@@ -203,6 +216,7 @@ router.get("/profile", function (req, res) {
 router.post("/logout", function (req, res) {
   req.session.user = null;
   req.session.isAuthenticated = false;
+  console.log("User logged out, session cleared.");
   res.redirect("/");
 });
 
