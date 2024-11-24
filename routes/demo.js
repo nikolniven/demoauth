@@ -28,7 +28,16 @@ router.get("/signup", function (req, res) {
 
 // Render login page
 router.get("/login", function (req, res) {
-  res.render("login");
+  let sessionInputData = req.session.inputData;
+  if (!sessionInputData) {
+    sessionInputData = {
+      hasError: false,
+      email: "",
+      password: "",
+    };
+  }
+  req.session.inputData = null;
+  res.render("login", { inputData: sessionInputData });
 });
 
 // Signup route to create a new user
@@ -66,8 +75,17 @@ router.post("/signup", async function (req, res) {
     .findOne({ email: enteredEmail });
 
   if (existingUser) {
-    console.log("User exists already!");
-    return res.redirect("/signup");
+    req.session.inputData = {
+      hasError: true,
+      message: "User exist already 🙃",
+      email: enteredEmail,
+      confirmEmail: enteredConfirmEmail,
+      password: enteredPassword,
+    };
+    req.session.save(function () {
+      res.redirect("/signup");
+    });
+    return;
   }
 
   const hashedPassword = await bcrypt.hash(enteredPassword, 12);
@@ -94,8 +112,16 @@ router.post("/login", async function (req, res) {
     .findOne({ email: enteredEmail });
 
   if (!existingUser) {
-    console.log("Could not log in! - User not found");
-    return res.redirect("/login");
+    req.session.inputData = {
+      hasError: true,
+      message: "Could not log you in, please check your credentials 🧐",
+      email: enteredEmail,
+      password: enteredPassword,
+    };
+    req.session.save(function () {
+      res.redirect("/login");
+    });
+    return;
   }
 
   // Compare the entered password with the stored password
@@ -105,8 +131,16 @@ router.post("/login", async function (req, res) {
   );
 
   if (!passwordsAreEqual) {
-    console.log("Could not log in! - passwords are not equal");
-    return res.redirect("/login");
+    req.session.inputData = {
+      hasError: true,
+      message: "Could not log you in, please check your credentials 🧐",
+      email: enteredEmail,
+      password: enteredPassword,
+    };
+    req.session.save(function () {
+      res.redirect("/login");
+    });
+    return;
   }
 
   // Store user info in session
