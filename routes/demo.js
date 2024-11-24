@@ -1,20 +1,8 @@
 const express = require("express");
-const { ObjectId } = require("mongodb");
 const bcrypt = require("bcryptjs");
 const db = require("../data/database");
-const session = require("express-session"); // Make sure express-session is required
 
 const router = express.Router();
-
-// Session configuration
-router.use(
-  session({
-    secret: "your-secret-key", // Change this to a secure, unique secret
-    resave: false,
-    saveUninitialized: false,
-    cookie: { secure: false }, // Set secure to true if using HTTPS
-  }),
-);
 
 // Render welcome page
 router.get("/", function (req, res) {
@@ -23,34 +11,30 @@ router.get("/", function (req, res) {
 
 // Render signup page
 router.get("/signup", function (req, res) {
-  let sessionInputData = req.session.inputData;
-  if (!sessionInputData) {
-    sessionInputData = {
-      hasError: false,
-      email: "",
-      confirmEmail: "",
-      password: "",
-    };
-  }
+  const sessionInputData = req.session.inputData || {
+    hasError: false,
+    email: "",
+    confirmEmail: "",
+    password: "",
+  };
+
   req.session.inputData = null;
   res.render("signup", { inputData: sessionInputData });
 });
 
 // Render login page
 router.get("/login", function (req, res) {
-  let sessionInputData = req.session.inputData;
-  if (!sessionInputData) {
-    sessionInputData = {
-      hasError: false,
-      email: "",
-      password: "",
-    };
-  }
+  const sessionInputData = req.session.inputData || {
+    hasError: false,
+    email: "",
+    password: "",
+  };
+
   req.session.inputData = null;
   res.render("login", { inputData: sessionInputData });
 });
 
-// Signup route to create a new user
+// Signup route
 router.post("/signup", async function (req, res) {
   const userData = req.body;
   const enteredEmail = userData.email;
@@ -61,7 +45,7 @@ router.post("/signup", async function (req, res) {
     !enteredEmail ||
     !enteredConfirmEmail ||
     !enteredPassword ||
-    enteredPassword.trim() < 6 ||
+    enteredPassword.length < 6 ||
     enteredEmail !== enteredConfirmEmail ||
     !enteredEmail.includes("@")
   ) {
@@ -73,10 +57,9 @@ router.post("/signup", async function (req, res) {
       password: enteredPassword,
     };
 
-    req.session.save(function () {
-      return res.redirect("/signup");
+    return req.session.save(function () {
+      res.redirect("/signup");
     });
-    return;
   }
 
   const existingUser = await db
@@ -92,30 +75,28 @@ router.post("/signup", async function (req, res) {
       confirmEmail: enteredConfirmEmail,
       password: enteredPassword,
     };
-    req.session.save(function () {
+
+    return req.session.save(function () {
       res.redirect("/signup");
     });
-    return;
   }
 
   const hashedPassword = await bcrypt.hash(enteredPassword, 12);
 
-  const user = {
+  await db.getDb().collection("users").insertOne({
     email: enteredEmail,
     password: hashedPassword,
-  };
-  await db.getDb().collection("users").insertOne(user);
+  });
 
   res.redirect("/login");
 });
 
-// Login route to authenticate the user
+// Login route
 router.post("/login", async function (req, res) {
   const userData = req.body;
   const enteredEmail = userData.email;
   const enteredPassword = userData.password;
 
-  // Find the user by email
   const existingUser = await db
     .getDb()
     .collection("users")
@@ -128,13 +109,12 @@ router.post("/login", async function (req, res) {
       email: enteredEmail,
       password: enteredPassword,
     };
-    req.session.save(function () {
+
+    return req.session.save(function () {
       res.redirect("/login");
     });
-    return;
   }
 
-  // Compare the entered password with the stored password
   const passwordsAreEqual = await bcrypt.compare(
     enteredPassword,
     existingUser.password,
@@ -147,77 +127,49 @@ router.post("/login", async function (req, res) {
       email: enteredEmail,
       password: enteredPassword,
     };
-    req.session.save(function () {
+
+    return req.session.save(function () {
       res.redirect("/login");
     });
-    return;
   }
 
-  // Store user info in session
   req.session.user = {
     id: existingUser._id.toString(),
     email: existingUser.email,
-    isAdmin: existingUser.isAdmin, // Store isAdmin flag in session
+    isAdmin: existingUser.isAdmin,
   };
   req.session.isAuthenticated = true;
 
-  // Log session data before redirecting to check if everything is set correctly
-  console.log("Session after login:", req.session); // Check session data
-
-  // Save the session
   req.session.save(function () {
-    console.log("Session saved successfully!");
     if (existingUser.isAdmin) {
-      return res.redirect("/admin");
+      res.redirect("/admin");
     } else {
-      return res.redirect("/profile");
+      res.redirect("/profile");
     }
   });
 });
 
-// Admin route: should only be accessed by admin users
-router.get("/admin", async function (req, res) {
-  console.log("Session in /admin route:", req.session);
-
-  if (!req.session.isAuthenticated) {
-    console.log("User is not authenticated, redirecting to 401");
-    return res.status(401).render("401");
-  }
-
-  // Ensure that the user exists in the session
-  const user = req.session.user;
-  if (!user) {
-    console.log("User not found in session, redirecting to 401");
-    return res.status(401).render("401");
-  }
-
-  console.log("User object:", user);
-  if (!user.isAdmin) {
-    console.log("User is not an admin, redirecting to 403");
+// Admin route
+router.get("/admin", function (req, res) {
+  if (!res.locals.isAuth || !res.locals.isAdmin) {
     return res.status(403).render("403");
   }
-
   res.render("admin");
 });
 
-// Profile route: should be accessible to authenticated users
+// Profile route
 router.get("/profile", function (req, res) {
-  console.log("Session in /profile route:", req.session); // Log session data here
-
-  if (!req.session.isAuthenticated) {
-    console.log("User not authenticated, redirecting to 401");
+  if (!res.locals.isAuth) {
     return res.status(401).render("401");
   }
-
   res.render("profile");
 });
 
-// Logout route to clear session and logout the user
+// Logout route
 router.post("/logout", function (req, res) {
-  req.session.user = null;
-  req.session.isAuthenticated = false;
-  console.log("User logged out, session cleared.");
-  res.redirect("/");
+  req.session.destroy(function () {
+    res.redirect("/");
+  });
 });
 
 module.exports = router;
